@@ -2,10 +2,22 @@
 # -*- coding: utf-8 -*-
 
 """
-Arduino Stepper Motor Control GUI
-==================================
-A PyQt5-based graphical user interface for controlling an Arduino stepper motor.
-This application provides controls for motor direction, speed, and steps per revolution.
+Interfaz Gráfica para Control de Motor Paso a Paso con Arduino
+==============================================================
+Una interfaz gráfica de usuario basada en PyQt5 para controlar un motor paso a paso
+conectado a Arduino. Esta aplicación proporciona controles para la dirección del motor,
+velocidad y número de pasos por revolución.
+
+Desarrollado para prácticas de adquisición de datos y control de dispositivos.
+Permite la comunicación serial con un Arduino para enviar comandos de control.
+
+Características principales:
+- Conexión y desconexión con Arduino mediante puerto serie
+- Control de dirección (horario/antihorario)
+- Ajuste de velocidad mediante slider
+- Configuración de pasos por revolución
+- Inicio/Parada y Parada de Emergencia
+- Monitoreo de estado y registro de mensajes
 """
 
 import sys
@@ -21,74 +33,94 @@ import time
 import threading
 
 class StepperMotorGUI(QMainWindow):
-    """Main application window for the Arduino Stepper Motor Control GUI."""
+    """
+    Ventana principal de la aplicación para el control de motor paso a paso.
+    
+    Esta clase implementa la interfaz gráfica completa con todos los controles
+    necesarios para la comunicación con Arduino y el control del motor paso a paso.
+    Incluye paneles para conexión, control del motor y monitoreo de estado.
+    """
     
     def __init__(self):
+        """
+        Inicializa la ventana principal y configura todos los componentes de la GUI.
+        
+        Crea los tres paneles principales (conexión, control y estado), establece
+        la configuración inicial y prepara los temporizadores para la comunicación serial.
+        """
         super().__init__()
         
-        # Initialize UI properties
-        self.setWindowTitle("Arduino Stepper Motor Control")
+        # Inicializa propiedades de la interfaz
+        self.setWindowTitle("Control de Motor Paso a Paso con Arduino")
         self.setMinimumSize(800, 600)
         
-        # Set up the central widget and main layout
+        # Configura el widget central y el layout principal
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
         
-        # Create the three panels (status panel first so log_text is available)
+        # Crea los tres paneles (panel de estado primero para que log_text esté disponible)
         self.setup_status_panel()
         self.setup_connection_panel()
         self.setup_control_panel()
         
-        # Log initial message after status panel is created
-        self.log_message("Application started. Please connect to Arduino.")
+        # Registra mensaje inicial después de crear el panel de estado
+        self.log_message("Aplicación iniciada. Por favor conecte el Arduino.")
         
-        # Initialize the serial connection (not connected yet)
+        # Inicializa la conexión serial (aún no conectada)
         self.serial_port = None
         self.is_connected = False
         
-        # Initialize motor control variables
-        self.current_direction = None
-        self.current_speed = 60  # Default from Arduino code
-        self.steps_per_revolution = 48  # Default from Arduino code
-        self.is_running = False
+        # Inicializa variables de control del motor
+        self.current_direction = None  # Dirección actual: None, "clockwise" o "counterclockwise"
+        self.current_speed = 60        # Velocidad predeterminada de 60 RPM
+        self.steps_per_revolution = 48 # Valor predeterminado de pasos por revolución
+        self.is_running = False        # Estado de funcionamiento del motor
         
-        # Set up serial reading timer
+        # Configura el temporizador para lectura serial
         self.serial_timer = QTimer(self)
         self.serial_timer.timeout.connect(self.read_serial)
-        self.serial_timer.setInterval(100)  # Check for serial data every 100ms
+        self.serial_timer.setInterval(100)  # Verifica datos seriales cada 100ms
         
-        # Set up command response timeout timer
+        # Configura el temporizador para timeout de respuesta de comandos
         self.response_timer = QTimer(self)
         self.response_timer.timeout.connect(self.handle_response_timeout)
-        self.response_timer.setSingleShot(True)
+        self.response_timer.setSingleShot(True)  # Temporizador de un solo disparo
         
-        # Command queue for serial operations
-        self.command_queue = []
-        self.awaiting_response = False
-        self.last_command = None
+        # Cola de comandos para operaciones seriales
+        self.command_queue = []        # Cola para almacenar comandos pendientes
+        self.awaiting_response = False # Indica si se espera respuesta de un comando
+        self.last_command = None       # Último comando enviado
         
-        # Update the UI to reflect the connection status
+        # Actualiza la interfaz para reflejar el estado de conexión
         self.update_connection_status()
         
     def setup_connection_panel(self):
-        """Create and configure the connection panel."""
-        # Create a group box for the connection panel
-        connection_group = QGroupBox("Connection Settings")
+        """
+        Crea y configura el panel de conexión.
+        
+        Este panel contiene controles para:
+        - Selección del puerto COM
+        - Botón para actualizar puertos disponibles
+        - Botón para conectar/desconectar
+        - Indicador de estado de conexión
+        """
+        # Crea un grupo para el panel de conexión
+        connection_group = QGroupBox("Configuración de Conexión")
         connection_layout = QHBoxLayout()
         
-        # COM Port selection dropdown
-        self.port_label = QLabel("COM Port:")
+        # Menú desplegable para selección de puerto COM
+        self.port_label = QLabel("Puerto COM:")
         self.port_combo = QComboBox()
-        self.refresh_button = QPushButton("Refresh")
+        self.refresh_button = QPushButton("Actualizar")
         self.refresh_button.clicked.connect(self.refresh_ports)
         
-        # Connect/Disconnect button
-        self.connect_button = QPushButton("Connect")
+        # Botón para conectar/desconectar
+        self.connect_button = QPushButton("Conectar")
         self.connect_button.clicked.connect(self.toggle_connection)
         
-        # Connection status indicator
-        self.status_label = QLabel("Disconnected")
+        # Indicador de estado de conexión
+        self.status_label = QLabel("Desconectado")
         self.status_label.setStyleSheet("color: red; font-weight: bold;")
         
         # Add widgets to the connection layout
@@ -109,20 +141,28 @@ class StepperMotorGUI(QMainWindow):
         self.refresh_ports()
         
     def setup_control_panel(self):
-        """Create and configure the motor control panel."""
-        # Create a group box for the control panel
-        control_group = QGroupBox("Motor Control")
+        """
+        Crea y configura el panel de control del motor.
+        
+        Este panel contiene controles para:
+        - Dirección del motor (horario/antihorario)
+        - Control de velocidad mediante slider
+        - Configuración de pasos por revolución
+        - Botones de inicio/parada y parada de emergencia
+        """
+        # Crea un grupo para el panel de control
+        control_group = QGroupBox("Control del Motor")
         control_layout = QGridLayout()
         
-        # Direction controls
-        direction_label = QLabel("Direction:")
-        self.cw_button = QPushButton("Clockwise")
+        # Controles de dirección
+        direction_label = QLabel("Dirección:")
+        self.cw_button = QPushButton("Horario")
         self.cw_button.clicked.connect(lambda: self.set_direction("clockwise"))
-        self.ccw_button = QPushButton("Counterclockwise")
+        self.ccw_button = QPushButton("Antihorario")
         self.ccw_button.clicked.connect(lambda: self.set_direction("counterclockwise"))
         
-        # Speed control
-        speed_label = QLabel("Speed:")
+        # Control de velocidad
+        speed_label = QLabel("Velocidad:")
         self.speed_slider = QSlider(Qt.Horizontal)
         self.speed_slider.setMinimum(0)
         self.speed_slider.setMaximum(100)
@@ -134,19 +174,19 @@ class StepperMotorGUI(QMainWindow):
         self.speed_value_label = QLabel("60 RPM")
         
         # Steps per revolution
-        steps_label = QLabel("Steps per Revolution:")
+        # Pasos por revolución
+        steps_label = QLabel("Pasos por Revolución:")
         self.steps_spinbox = QSpinBox()
-        self.steps_spinbox.setMinimum(1)
         self.steps_spinbox.setMaximum(1000)
         self.steps_spinbox.setValue(48)  # Default value from Arduino code
         self.steps_spinbox.valueChanged.connect(self.update_steps)
         
         # Start/Stop and Emergency Stop buttons
-        self.start_stop_button = QPushButton("Start")
+        # Botones de inicio/parada y parada de emergencia
+        self.start_stop_button = QPushButton("Iniciar")
         self.start_stop_button.clicked.connect(self.toggle_motor)
         
-        self.emergency_stop_button = QPushButton("EMERGENCY STOP")
-        self.emergency_stop_button.setStyleSheet("background-color: red; color: white; font-weight: bold;")
+        self.emergency_stop_button = QPushButton("PARADA DE EMERGENCIA")
         self.emergency_stop_button.clicked.connect(self.emergency_stop)
         
         # Add widgets to the control layout
@@ -171,7 +211,8 @@ class StepperMotorGUI(QMainWindow):
         self.main_layout.addWidget(control_group)
         
     def setup_status_panel(self):
-        """Create and configure the status panel."""
+        """
+        Crea y configura
         # Create a group box for the status panel
         status_group = QGroupBox("Status")
         status_layout = QVBoxLayout()
