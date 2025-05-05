@@ -22,6 +22,7 @@ Características principales:
 
 import sys
 import serial
+import serial.tools
 import serial.tools.list_ports
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QGridLayout, QLabel, QPushButton, 
@@ -212,7 +213,7 @@ class StepperMotorGUI(QMainWindow):
         
     def setup_status_panel(self):
         """
-        Crea y configura
+        Crea y configura"""
         # Create a group box for the status panel
         status_group = QGroupBox("Status")
         status_layout = QVBoxLayout()
