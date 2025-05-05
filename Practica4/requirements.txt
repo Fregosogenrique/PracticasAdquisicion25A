@@ -1,0 +1,4 @@
+# Requirements for Practica4
+tkinter  # Usually included with Python installation
+pillow>=9.0.0  # For handling images if needed
+

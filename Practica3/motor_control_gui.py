@@ -600,5 +600,456 @@ class MotorControlGUI(QMainWindow):
                     # Log data if enabled
                     if self.is_logging:
                         self.log_data.append({
-                            
+                            'time': rel_time,
+                            'timestamp': timestamp,
+                            'position': position,
+                            'speed': speed,
+                            'setpoint': setpoint,
+                            'error': error,
+                            'control': control,
+                            'kp': kp,
+                            'ki': ki,
+                            'kd': kd,
+                            'mode': mode
+                        })
+                        self.export_button.setEnabled(True)
+                    
+                    # Update status bar
+                    self.statusBar.showMessage(f"Position: {position} | Speed: {speed} | Error: {error:.2f}")
+            
+            # Check for other responses (e.g., confirmations)
+            else:
+                # Log any non-data messages to status bar
+                self.statusBar.showMessage(data, 3000)  # Show for 3 seconds
+                
+        except Exception as e:
+            self.statusBar.showMessage(f"Error processing data: {str(e)}", 3000)
+    
+    # Control Methods
+    def apply_pid_parameters(self):
+        """Send new PID parameters to Arduino"""
+        if self.serial_thread and self.serial_thread.running:
+            kp = self.kp_spin.value()
+            ki = self.ki_spin.value()
+            kd = self.kd_spin.value()
+            
+            # Send the command
+            command = f"PID,{kp},{ki},{kd}"
+            self.serial_thread.send_command(command)
+            self.statusBar.showMessage(f"Applied PID parameters: Kp={kp}, Ki={ki}, Kd={kd}")
+        else:
+            QMessageBox.warning(self, "Not Connected", "Please connect to Arduino first")
+    
+    def change_control_mode(self, button):
+        """Change control mode (Position/Speed)"""
+        if self.serial_thread and self.serial_thread.running:
+            if button == self.position_radio:
+                mode = 'P'  # Position mode
+                self.control_mode = 'P'
+                self.serial_thread.send_command("SETMODE,P")
+                self.statusBar.showMessage("Switched to Position Control mode")
+            else:
+                mode = 'S'  # Speed mode
+                self.control_mode = 'S'
+                self.serial_thread.send_command("SETMODE,S")
+                self.statusBar.showMessage("Switched to Speed Control mode")
+            
+            # Clear the plot data on mode change
+            self.plot_canvas.clear_data()
+        else:
+            QMessageBox.warning(self, "Not Connected", "Please connect to Arduino first")
+            # Reset radio buttons to match current mode
+            if self.control_mode == 'P':
+                self.position_radio.setChecked(True)
+            else:
+                self.speed_radio.setChecked(True)
+    
+    def apply_setpoint(self):
+        """Send new setpoint to Arduino"""
+        if self.serial_thread and self.serial_thread.running:
+            setpoint = self.setpoint_spin.value()
+            command = f"SET,{setpoint}"
+            self.serial_thread.send_command(command)
+            
+            mode_text = "position" if self.control_mode == 'P' else "speed"
+            self.statusBar.showMessage(f"Set {mode_text} setpoint to {setpoint}")
+        else:
+            QMessageBox.warning(self, "Not Connected", "Please connect to Arduino first")
+    
+    def update_manual_value(self):
+        """Update the manual control value label"""
+        value = self.manual_slider.value()
+        self.manual_value_label.setText(str(value))
+    
+    def apply_manual_control(self):
+        """Send manual control value to Arduino"""
+        if self.serial_thread and self.serial_thread.running:
+            value = self.manual_slider.value()
+            command = f"MOTOR,{value}"
+            self.serial_thread.send_command(command)
+            self.statusBar.showMessage(f"Manual motor control: {value}")
+        else:
+            QMessageBox.warning(self, "Not Connected", "Please connect to Arduino first")
+    
+    def zero_motor(self):
+        """Stop the motor (set PWM to 0)"""
+        if self.serial_thread and self.serial_thread.running:
+            self.serial_thread.send_command("MOTOR,0")
+            self.manual_slider.setValue(0)
+            self.statusBar.showMessage("Motor stopped")
+        else:
+            QMessageBox.warning(self, "Not Connected", "Please connect to Arduino first")
+    
+    def reset_encoder(self):
+        """Reset the encoder position to 0"""
+        if self.serial_thread and self.serial_thread.running:
+            self.serial_thread.send_command("RESET")
+            self.statusBar.showMessage("Encoder position reset to 0")
+        else:
+            QMessageBox.warning(self, "Not Connected", "Please connect to Arduino first")
+    
+    def emergency_stop(self):
+        """Emergency stop - immediately stop the motor and reset"""
+        if self.serial_thread and self.serial_thread.running:
+            # Stop the motor
+            self.serial_thread.send_command("MOTOR,0")
+            self.manual_slider.setValue(0)
+            
+            # Reset the setpoint
+            self.setpoint_spin.setValue(0)
+            self.serial_thread.send_command("SET,0")
+            
+            # Show message
+            QMessageBox.warning(self, "Emergency Stop", "Motor stopped. Reset your system as needed.")
+            self.statusBar.showMessage("EMERGENCY STOP activated")
+        else:
+            QMessageBox.warning(self, "Not Connected", "Not connected to motor controller")
+    
+    # Data Logging Methods
+    def toggle_logging(self):
+        """Start or stop data logging"""
+        self.is_logging = not self.is_logging
+        
+        if self.is_logging:
+            # Start logging
+            self.logging_button.setText("Stop Logging")
+            self.logging_status.setText("Logging data...")
+            # Reset log data if already full
+            if len(self.log_data) > 0:
+                if QMessageBox.question(self, "Confirm", "Clear existing log data?", 
+                                       QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+                    self.log_data = []
+            self.statusBar.showMessage("Data logging started")
+        else:
+            # Stop logging
+            self.logging_button.setText("Start Logging")
+            self.logging_status.setText(f"Logging stopped. {len(self.log_data)} data points collected.")
+            self.statusBar.showMessage("Data logging stopped")
+            
+            # Enable export if we have data
+            if len(self.log_data) > 0:
+                self.export_button.setEnabled(True)
+            else:
+                self.export_button.setEnabled(False)
+    
+    def export_data(self):
+        """Export logged data to CSV file"""
+        if len(self.log_data) == 0:
+            QMessageBox.warning(self, "No Data", "No data to export")
+            return
+            
+        # Get filename from dialog
+        filename, _ = QFileDialog.getSaveFileName(self, "Export Data", "", "CSV Files (*.csv);;All Files (*)")
+        if not filename:
+            return
+            
+        try:
+            with open(filename, 'w', newline='') as csvfile:
+                # Define fields to export
+                fieldnames = ['time', 'timestamp', 'position', 'speed', 'setpoint', 
+                             'error', 'control', 'kp', 'ki', 'kd', 'mode']
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                
+                # Write header
+                writer.writeheader()
+                
+                # Write data rows
+                for row in self.log_data:
+                    writer.writerow(row)
+                    
+                self.statusBar.showMessage(f"Data exported to {filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to export data: {str(e)}")
+    
+    def clear_data(self):
+        """Clear all logged data and reset plots"""
+        if len(self.log_data) > 0:
+            if QMessageBox.question(self, "Confirm", "Clear all logged data?", 
+                                   QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+                self.log_data = []
+                self.plot_canvas.clear_data()
+                self.export_button.setEnabled(False)
+                self.logging_status.setText("Not logging")
+                self.statusBar.showMessage("All data cleared")
+        else:
+            self.plot_canvas.clear_data()
+            self.statusBar.showMessage("Plot cleared")
+    
+    def change_plot_window(self, value):
+        """Change the plot time window size"""
+        self.plot_canvas.set_window_size(float(value))
+        self.statusBar.showMessage(f"Plot window set to {value} seconds")
+    
+    # Configuration Methods
+    def save_configuration(self):
+        """Save current configuration to a JSON file"""
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Configuration", "", "JSON Files (*.json);;All Files (*)")
+        if not filename:
+            return
+            
+        try:
+            config = {
+                'pid': {
+                    'kp': self.kp_spin.value(),
+                    'ki': self.ki_spin.value(),
+                    'kd': self.kd_spin.value()
+                },
+                'control_mode': 'P' if self.position_radio.isChecked() else 'S',
+                'setpoint': self.setpoint_spin.value(),
+                'plot_window': self.window_spin.value(),
+                'baudrate': self.baud_combo.currentText()
+            }
+            
+            with open(filename, 'w') as f:
+                json.dump(config, f, indent=4)
+                
+            self.statusBar.showMessage(f"Configuration saved to {filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Failed to save configuration: {str(e)}")
+    
+    def load_configuration(self):
+        """Load configuration from a JSON file"""
+        filename, _ = QFileDialog.getOpenFileName(self, "Load Configuration", "", "JSON Files (*.json);;All Files (*)")
+        if not filename:
+            return
+            
+        try:
+            with open(filename, 'r') as f:
+                config = json.load(f)
+                
+            # Apply loaded configuration
+            if 'pid' in config:
+                self.kp_spin.setValue(config['pid'].get('kp', 1.0))
+                self.ki_spin.setValue(config['pid'].get('ki', 0.1))
+                self.kd_spin.setValue(config['pid'].get('kd', 0.01))
+                
+                # Apply to Arduino if connected
+                if self.serial_thread and self.serial_thread.running:
+                    self.apply_pid_parameters()
+            
+            if 'control_mode' in config:
+                if config['control_mode'] == 'P':
+                    self.position_radio.setChecked(True)
+                else:
+                    self.speed_radio.setChecked(True)
+                    
+                # Apply to Arduino if connected
+                if self.serial_thread and self.serial_thread.running:
+                    self.change_control_mode(self.position_radio if config['control_mode'] == 'P' else self.speed_radio)
+            
+            if 'setpoint' in config:
+                self.setpoint_spin.setValue(config['setpoint'])
+                
+                # Apply to Arduino if connected
+                if self.serial_thread and self.serial_thread.running:
+                    self.apply_setpoint()
+            
+            if 'plot_window' in config:
+                self.window_spin.setValue(config['plot_window'])
+                self.change_plot_window(config['plot_window'])
+            
+            if 'baudrate' in config:
+                index = self.baud_combo.findText(config['baudrate'])
+                if index >= 0:
+                    self.baud_combo.setCurrentIndex(index)
+                    
+            self.statusBar.showMessage(f"Configuration loaded from {filename}")
+        except Exception as e:
+            QMessageBox.critical(self, "Load Error", f"Failed to load configuration: {str(e)}")
+    
+    # Utility Methods
+    def setEnabledControls(self, enabled):
+        """Enable or disable control widgets based on connection status"""
+        # PID control widgets
+        self.kp_spin.setEnabled(enabled)
+        self.ki_spin.setEnabled(enabled)
+        self.kd_spin.setEnabled(enabled)
+        self.apply_pid_button.setEnabled(enabled)
+        
+        # Motor control widgets
+        self.setpoint_spin.setEnabled(enabled)
+        self.apply_setpoint_button.setEnabled(enabled)
+        self.manual_slider.setEnabled(enabled)
+        self.apply_manual_button.setEnabled(enabled)
+        self.zero_button.setEnabled(enabled)
+        self.reset_encoder_button.setEnabled(enabled)
+        
+        # Control mode widgets
+        self.position_radio.setEnabled(enabled)
+        self.speed_radio.setEnabled(enabled)
+        
+        # Emergency stop is always enabled if there's a connection
+        self.emergency_stop_button.setEnabled(enabled)
+    
+    def update_ui(self):
+        """Timer-based UI updates"""
+        # Update UI based on connection status
+        is_connected = self.serial_thread is not None and self.serial_thread.running
+        
+        # Update port selection enabled state
+        self.port_combo.setEnabled(not is_connected)
+        self.baud_combo.setEnabled(not is_connected)
+        self.refresh_button.setEnabled(not is_connected)
+    
+    def show_about(self):
+        """Show about dialog"""
+        about_text = """
+<h1>Motor Control with PID - Practice 3</h1>
+<p>Version 1.0</p>
+<p>A PyQt-based interface for controlling a DC motor with encoder feedback using PID control.</p>
+<p>Features:</p>
+<ul>
+<li>Real-time plotting of position, speed, and control signals</li>
+<li>PID parameter adjustment</li>
+<li>Mode selection (Position/Speed control)</li>
+<li>Manual motor control</li>
+<li>Data logging and export</li>
+<li>Configuration save/load</li>
+<li>Emergency stop</li>
+</ul>
+<p>&copy; 2025 - Data Acquisition and Control Course</p>
+"""
+        QMessageBox.about(self, "About Motor Control GUI", about_text)
+    
+    def save_settings(self):
+        """Save application settings to QSettings"""
+        settings = QSettings("DataAcquisition", "MotorControlGUI")
+        
+        # Save PID parameters
+        settings.setValue("pid/kp", self.kp_spin.value())
+        settings.setValue("pid/ki", self.ki_spin.value())
+        settings.setValue("pid/kd", self.kd_spin.value())
+        
+        # Save control mode
+        settings.setValue("control_mode", "P" if self.position_radio.isChecked() else "S")
+        
+        # Save plot window size
+        settings.setValue("plot_window", self.window_spin.value())
+        
+        # Save baudrate
+        settings.setValue("baudrate", self.baud_combo.currentText())
+        
+        # Save window geometry
+        settings.setValue("geometry", self.saveGeometry())
+        settings.setValue("windowState", self.saveState())
+        
+        # Save splitter state
+        settings.setValue("splitter", self.splitter.saveState())
+    
+    def load_settings(self):
+        """Load application settings from QSettings"""
+        settings = QSettings("DataAcquisition", "MotorControlGUI")
+        
+        # Load PID parameters
+        self.kp_spin.setValue(float(settings.value("pid/kp", 1.0)))
+        self.ki_spin.setValue(float(settings.value("pid/ki", 0.1)))
+        self.kd_spin.setValue(float(settings.value("pid/kd", 0.01)))
+        
+        # Load control mode
+        mode = settings.value("control_mode", "P")
+        if mode == "P":
+            self.position_radio.setChecked(True)
+            self.control_mode = "P"
+        else:
+            self.speed_radio.setChecked(True)
+            self.control_mode = "S"
+        
+        # Load plot window size
+        window_size = settings.value("plot_window", 10)
+        if window_size:
+            self.window_spin.setValue(int(window_size))
+            self.plot_canvas.set_window_size(float(window_size))
+        
+        # Load baudrate
+        baudrate = settings.value("baudrate", "115200")
+        index = self.baud_combo.findText(baudrate)
+        if index >= 0:
+            self.baud_combo.setCurrentIndex(index)
+        
+        # Load window geometry if available
+        if settings.contains("geometry"):
+            self.restoreGeometry(settings.value("geometry"))
+        if settings.contains("windowState"):
+            self.restoreState(settings.value("windowState"))
+        
+        # Load splitter state if available
+        if settings.contains("splitter"):
+            self.splitter.restoreState(settings.value("splitter"))
+    
+    def closeEvent(self, event):
+        """Handle window close event"""
+        # Disconnect from serial port if connected
+        if self.serial_thread and self.serial_thread.running:
+            # Ask user if they want to stop the motor before exiting
+            reply = QMessageBox.question(self, "Exit Confirmation",
+                                        "Stop the motor before exiting?",
+                                        QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+            
+            if reply == QMessageBox.Cancel:
+                event.ignore()
+                return
+            
+            if reply == QMessageBox.Yes:
+                self.serial_thread.send_command("MOTOR,0")
+            
+            # Disconnect
+            self.disconnect_serial()
+        
+        # Check if data logging is active and offer to export
+        if len(self.log_data) > 0 and not self.export_button.isEnabled():
+            reply = QMessageBox.question(self, "Export Data",
+                                        "Would you like to export the logged data before exiting?",
+                                        QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
+            
+            if reply == QMessageBox.Cancel:
+                event.ignore()
+                return
+            
+            if reply == QMessageBox.Yes:
+                self.export_data()
+        
+        # Save application settings
+        self.save_settings()
+        
+        # Accept the event and close the window
+        event.accept()
 
+
+def main():
+    """Main application entry point"""
+    # Create application
+    app = QApplication(sys.argv)
+    app.setApplicationName("Motor Control GUI")
+    app.setOrganizationName("DataAcquisition")
+    app.setOrganizationDomain("dataacquisition.edu")
+    
+    # Create and show main window
+    main_window = MotorControlGUI()
+    main_window.show()
+    
+    # Run application event loop
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
