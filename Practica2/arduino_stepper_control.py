@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 
 """
-Interfaz Gráfica para Control de Motor Paso a Paso con Arduino
-==============================================================
-Una interfaz gráfica de usuario basada en PyQt5 para controlar un motor paso a paso
+Interfaz Gráfica para Control de Motor con Encoder y Arduino
+===========================================================
+Una interfaz gráfica de usuario basada en PyQt5 para controlar un motor con encoder
 conectado a Arduino. Esta aplicación proporciona controles para la dirección del motor,
-velocidad y número de pasos por revolución.
+velocidad, modo continuo y monitoreo de posición del encoder.
 
 Desarrollado para prácticas de adquisición de datos y control de dispositivos.
 Permite la comunicación serial con un Arduino para enviar comandos de control.
@@ -15,7 +15,9 @@ Características principales:
 - Conexión y desconexión con Arduino mediante puerto serie
 - Control de dirección (horario/antihorario)
 - Ajuste de velocidad mediante slider
-- Configuración de pasos por revolución
+- Monitoreo en tiempo real de la posición del encoder
+- Modo de rotación continua
+- Indicador de velocidad actual desde el encoder
 - Inicio/Parada y Parada de Emergencia
 - Monitoreo de estado y registro de mensajes
 """
@@ -33,13 +35,13 @@ from PyQt5.QtGui import QFont, QIcon, QColor
 import time
 import threading
 
-class StepperMotorGUI(QMainWindow):
+class MotorEncoderGUI(QMainWindow):
     """
-    Ventana principal de la aplicación para el control de motor paso a paso.
+    Ventana principal de la aplicación para el control de motor con encoder.
     
     Esta clase implementa la interfaz gráfica completa con todos los controles
-    necesarios para la comunicación con Arduino y el control del motor paso a paso.
-    Incluye paneles para conexión, control del motor y monitoreo de estado.
+    necesarios para la comunicación con Arduino y el control del motor con encoder.
+    Incluye paneles para conexión, control del motor y monitoreo de estado y posición.
     """
     
     def __init__(self):
@@ -52,7 +54,7 @@ class StepperMotorGUI(QMainWindow):
         super().__init__()
         
         # Inicializa propiedades de la interfaz
-        self.setWindowTitle("Control de Motor Paso a Paso con Arduino")
+        self.setWindowTitle("Control de Motor con Encoder y Arduino")
         self.setMinimumSize(800, 600)
         
         # Configura el widget central y el layout principal
@@ -74,14 +76,22 @@ class StepperMotorGUI(QMainWindow):
         
         # Inicializa variables de control del motor
         self.current_direction = None  # Dirección actual: None, "clockwise" o "counterclockwise"
-        self.current_speed = 60        # Velocidad predeterminada de 60 RPM
-        self.steps_per_revolution = 48 # Valor predeterminado de pasos por revolución
+        self.current_speed = 60        # Velocidad predeterminada (PWM 0-255)
         self.is_running = False        # Estado de funcionamiento del motor
+        self.continuous_mode = False   # Modo de rotación continua
+        self.encoder_position = 0      # Posición actual del encoder
+        self.actual_speed = 0.0        # Velocidad real medida del encoder (RPM)
+        self.rotation_count = 0        # Contador de rotaciones completas
         
         # Configura el temporizador para lectura serial
         self.serial_timer = QTimer(self)
         self.serial_timer.timeout.connect(self.read_serial)
         self.serial_timer.setInterval(100)  # Verifica datos seriales cada 100ms
+        
+        # Configura el temporizador para actualizar la información del encoder
+        self.encoder_timer = QTimer(self)
+        self.encoder_timer.timeout.connect(self.update_encoder_status)
+        self.encoder_timer.setInterval(500)  # Actualiza la posición del encoder cada 500ms
         
         # Configura el temporizador para timeout de respuesta de comandos
         self.response_timer = QTimer(self)
@@ -148,7 +158,7 @@ class StepperMotorGUI(QMainWindow):
         Este panel contiene controles para:
         - Dirección del motor (horario/antihorario)
         - Control de velocidad mediante slider
-        - Configuración de pasos por revolución
+        - Toggle para modo continuo
         - Botones de inicio/parada y parada de emergencia
         """
         # Crea un grupo para el panel de control
@@ -163,24 +173,22 @@ class StepperMotorGUI(QMainWindow):
         self.ccw_button.clicked.connect(lambda: self.set_direction("counterclockwise"))
         
         # Control de velocidad
-        speed_label = QLabel("Velocidad:")
+        speed_label = QLabel("Velocidad (PWM):")
         self.speed_slider = QSlider(Qt.Horizontal)
         self.speed_slider.setMinimum(0)
-        self.speed_slider.setMaximum(100)
-        self.speed_slider.setValue(60)  # Default speed of 60 RPM
+        self.speed_slider.setMaximum(255)  # PWM range 0-255
+        self.speed_slider.setValue(60)     # Default speed
         self.speed_slider.setTickPosition(QSlider.TicksBelow)
-        self.speed_slider.setTickInterval(10)
+        self.speed_slider.setTickInterval(25)
         self.speed_slider.valueChanged.connect(self.update_speed)
         
-        self.speed_value_label = QLabel("60 RPM")
+        self.speed_value_label = QLabel("60")
         
-        # Steps per revolution
-        # Pasos por revolución
-        steps_label = QLabel("Pasos por Revolución:")
-        self.steps_spinbox = QSpinBox()
-        self.steps_spinbox.setMaximum(1000)
-        self.steps_spinbox.setValue(48)  # Default value from Arduino code
-        self.steps_spinbox.valueChanged.connect(self.update_steps)
+        # Toggle de modo continuo
+        continuous_label = QLabel("Modo Continuo:")
+        self.continuous_toggle = QPushButton("Activar")
+        self.continuous_toggle.setCheckable(True)
+        self.continuous_toggle.clicked.connect(self.toggle_continuous_mode)
         
         # Start/Stop and Emergency Stop buttons
         # Botones de inicio/parada y parada de emergencia
@@ -199,8 +207,8 @@ class StepperMotorGUI(QMainWindow):
         control_layout.addWidget(self.speed_slider, 1, 1, 1, 2)
         control_layout.addWidget(self.speed_value_label, 1, 3)
         
-        control_layout.addWidget(steps_label, 2, 0)
-        control_layout.addWidget(self.steps_spinbox, 2, 1)
+        control_layout.addWidget(continuous_label, 2, 0)
+        control_layout.addWidget(self.continuous_toggle, 2, 1)
         
         control_layout.addWidget(self.start_stop_button, 3, 0, 1, 2)
         control_layout.addWidget(self.emergency_stop_button, 3, 2, 1, 2)
@@ -226,8 +234,24 @@ class StepperMotorGUI(QMainWindow):
         self.direction_value_label = QLabel("Not Set")
         
         # Current speed indicator
-        speed_status_label = QLabel("Current Speed:")
-        self.speed_status_value = QLabel("0 RPM")
+        speed_status_label = QLabel("Target Speed (PWM):")
+        self.speed_status_value = QLabel("0")
+        
+        # Actual speed from encoder
+        actual_speed_label = QLabel("Actual Speed (RPM):")
+        self.actual_speed_value = QLabel("0.0")
+        
+        # Encoder position
+        encoder_pos_label = QLabel("Encoder Position:")
+        self.encoder_pos_value = QLabel("0")
+        
+        # Rotation count
+        rotation_count_label = QLabel("Rotation Count:")
+        self.rotation_count_value = QLabel("0")
+        
+        # Continuous mode status
+        continuous_status_label = QLabel("Continuous Mode:")
+        self.continuous_status_value = QLabel("OFF")
         
         # Operation status
         operation_status_label = QLabel("Operation Status:")
@@ -240,8 +264,20 @@ class StepperMotorGUI(QMainWindow):
         indicators_layout.addWidget(speed_status_label, 1, 0)
         indicators_layout.addWidget(self.speed_status_value, 1, 1)
         
-        indicators_layout.addWidget(operation_status_label, 2, 0)
-        indicators_layout.addWidget(self.operation_status_value, 2, 1)
+        indicators_layout.addWidget(actual_speed_label, 2, 0)
+        indicators_layout.addWidget(self.actual_speed_value, 2, 1)
+        
+        indicators_layout.addWidget(encoder_pos_label, 3, 0)
+        indicators_layout.addWidget(self.encoder_pos_value, 3, 1)
+        
+        indicators_layout.addWidget(rotation_count_label, 4, 0)
+        indicators_layout.addWidget(self.rotation_count_value, 4, 1)
+        
+        indicators_layout.addWidget(continuous_status_label, 5, 0)
+        indicators_layout.addWidget(self.continuous_status_value, 5, 1)
+        
+        indicators_layout.addWidget(operation_status_label, 6, 0)
+        indicators_layout.addWidget(self.operation_status_value, 6, 1)
         
         # Add the indicators layout to the status layout
         status_layout.addLayout(indicators_layout)
@@ -302,8 +338,9 @@ class StepperMotorGUI(QMainWindow):
                 self.serial_timer.start()
                 
                 # Send initial commands to set up the Arduino
-                self.send_command(f"STEPS:{self.steps_per_revolution}")
-                self.send_command(f"SPEED:{self.current_speed}")
+                self.send_command(f"SET_SPEED:{self.current_speed}")
+                # Start the encoder update timer
+                self.encoder_timer.start()
             except serial.SerialException as e:
                 self.log_message(f"Error connecting to {port}: {str(e)}")
                 return
@@ -312,6 +349,8 @@ class StepperMotorGUI(QMainWindow):
             # Stop the serial reading timer first
             self.serial_timer.stop()
             self.response_timer.stop()
+            # Stop the encoder update timer
+            self.encoder_timer.stop()
             
             # If motor is running, stop it before disconnecting
             if self.is_running:
@@ -339,7 +378,7 @@ class StepperMotorGUI(QMainWindow):
             self.cw_button.setEnabled(True)
             self.ccw_button.setEnabled(True)
             self.speed_slider.setEnabled(True)
-            self.steps_spinbox.setEnabled(True)
+            self.continuous_toggle.setEnabled(True)
             self.start_stop_button.setEnabled(True)
             self.emergency_stop_button.setEnabled(True)
         else:
@@ -351,13 +390,17 @@ class StepperMotorGUI(QMainWindow):
             self.cw_button.setEnabled(False)
             self.ccw_button.setEnabled(False)
             self.speed_slider.setEnabled(False)
-            self.steps_spinbox.setEnabled(False)
+            self.continuous_toggle.setEnabled(False)
             self.start_stop_button.setEnabled(False)
             self.emergency_stop_button.setEnabled(False)
             
             # Reset status indicators
             self.direction_value_label.setText("Not Set")
-            self.speed_status_value.setText("0 RPM")
+            self.speed_status_value.setText("0")
+            self.actual_speed_value.setText("0.0")
+            self.encoder_pos_value.setText("0")
+            self.rotation_count_value.setText("0")
+            self.continuous_status_value.setText("OFF")
             self.operation_status_value.setText("Idle")
     
     def set_direction(self, direction):
@@ -371,28 +414,49 @@ class StepperMotorGUI(QMainWindow):
         
         # Send direction command to Arduino
         if direction == "clockwise":
-            self.send_command("CW")
+            self.send_command("SET_DIR:CW")
         else:
-            self.send_command("CCW")
+            self.send_command("SET_DIR:CCW")
         
     def update_speed(self):
         """Update the speed display when the slider is moved."""
         speed = self.speed_slider.value()
         self.current_speed = speed
-        self.speed_value_label.setText(f"{speed} RPM")
-        self.speed_status_value.setText(f"{speed} RPM")
+        self.speed_value_label.setText(f"{speed}")
+        self.speed_status_value.setText(f"{speed}")
         
         # Send the speed command to Arduino
-        self.send_command(f"SPEED:{speed}")
+        self.send_command(f"SET_SPEED:{speed}")
         
-    def update_steps(self):
-        """Update the steps per revolution."""
-        steps = self.steps_spinbox.value()
-        self.steps_per_revolution = steps
-        self.log_message(f"Steps per revolution set to {steps}.")
+    def toggle_continuous_mode(self):
+        """Toggle continuous rotation mode."""
+        if not self.is_connected:
+            return
+            
+        # Toggle mode
+        self.continuous_mode = not self.continuous_mode
         
-        # Send steps per revolution command to Arduino
-        self.send_command(f"STEPS:{steps}")
+        if self.continuous_mode:
+            self.continuous_toggle.setText("Desactivar")
+            self.continuous_status_value.setText("ON")
+            self.log_message("Continuous rotation mode activated.")
+            self.send_command("SET_CONTINUOUS:ON")
+        else:
+            self.continuous_toggle.setText("Activar")
+            self.continuous_status_value.setText("OFF")
+            self.log_message("Continuous rotation mode deactivated.")
+            self.send_command("SET_CONTINUOUS:OFF")
+            
+    def update_encoder_status(self):
+        """Request and update encoder position and speed information."""
+        if not self.is_connected:
+            return
+            
+        # Request current position
+        self.send_command("GET_POS")
+        
+        # Request current speed
+        self.send_command("GET_SPEED")
     
     def toggle_motor(self):
         """Start or stop the motor."""
@@ -400,24 +464,27 @@ class StepperMotorGUI(QMainWindow):
             return
             
         # Toggle button state
-        if self.start_stop_button.text() == "Start":
-            self.start_stop_button.setText("Stop")
+        if self.start_stop_button.text() == "Iniciar":
+            self.start_stop_button.setText("Detener")
             self.operation_status_value.setText("Running")
             self.log_message("Motor started.")
             self.is_running = True
             
             # Send start command with current direction
             if self.current_direction == "clockwise":
-                self.send_command("START:CW")
+                self.send_command("SET_DIR:CW")
             elif self.current_direction == "counterclockwise":
-                self.send_command("START:CCW")
+                self.send_command("SET_DIR:CCW")
             else:
                 # Default to clockwise if no direction set
-                self.send_command("START:CW")
+                self.send_command("SET_DIR:CW")
                 self.current_direction = "clockwise"
                 self.direction_value_label.setText("Clockwise")
+                
+            # Start the motor with current speed
+            self.send_command(f"SET_SPEED:{self.current_speed}")
         else:
-            self.start_stop_button.setText("Start")
+            self.start_stop_button.setText("Iniciar")
             self.operation_status_value.setText("Stopped")
             self.log_message("Motor stopped.")
             self.is_running = False
@@ -430,7 +497,7 @@ class StepperMotorGUI(QMainWindow):
         if not self.is_connected:
             return
             
-        self.start_stop_button.setText("Start")
+        self.start_stop_button.setText("Iniciar")
         self.operation_status_value.setText("EMERGENCY STOPPED")
         self.log_message("EMERGENCY STOP activated!", "red")
         self.is_running = False
@@ -530,11 +597,40 @@ class StepperMotorGUI(QMainWindow):
         # Mark that we're no longer waiting for a response
         self.awaiting_response = False
         
-        # Process specific responses
-        if response.startswith("OK:"):
-            # Command was successful
-            command = response[3:]  # Extract the command that was acknowledged
-            self.log_message(f"Command '{command}' completed successfully", "green")
+        # Process encoder position and speed feedback
+        if response.startswith("POS:"):
+            # Update encoder position display
+            position = response[4:]
+            try:
+                pos_value = int(position)
+                self.encoder_position = pos_value
+                self.encoder_pos_value.setText(str(pos_value))
+                
+                # Calculate rotation count (from encoder position)
+                encoder_resolution = 1200  # This should match ENCODER_RESOLUTION in Arduino
+                self.rotation_count = abs(pos_value) // encoder_resolution
+                self.rotation_count_value.setText(str(self.rotation_count))
+            except ValueError:
+                self.log_message(f"Invalid position value: {position}", "red")
+        
+        elif response.startswith("ROT:"):
+            # Direct update of rotation count from Arduino
+            rot_count = response[4:]
+            try:
+                self.rotation_count = int(rot_count)
+                self.rotation_count_value.setText(str(self.rotation_count))
+            except ValueError:
+                self.log_message(f"Invalid rotation count: {rot_count}", "red")
+        
+        elif response.startswith("SPEED:"):
+            # Update actual speed display
+            speed = response[6:]
+            try:
+                speed_value = float(speed)
+                self.actual_speed = speed_value
+                self.actual_speed_value.setText(f"{speed_value:.1f}")
+            except ValueError:
+                self.log_message(f"Invalid speed value: {speed}", "red")
             
         elif response.startswith("ERROR:"):
             # Command error
@@ -621,8 +717,21 @@ class StepperMotorGUI(QMainWindow):
             self.serial_timer.start()
             
             # Resend configuration commands
-            self.send_command(f"STEPS:{self.steps_per_revolution}")
-            self.send_command(f"SPEED:{self.current_speed}")
+            # Resend configuration commands if previously set
+            if self.current_speed > 0:
+                self.send_command(f"SET_SPEED:{self.current_speed}")
+                
+            if self.current_direction:
+                if self.current_direction == "clockwise":
+                    self.send_command("SET_DIR:CW")
+                else:
+                    self.send_command("SET_DIR:CCW")
+                    
+            if self.continuous_mode:
+                self.send_command("SET_CONTINUOUS:ON")
+                
+            # Restart encoder updates
+            self.encoder_timer.start()
             
             # Update the UI
             self.update_connection_status()
@@ -635,6 +744,6 @@ class StepperMotorGUI(QMainWindow):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = StepperMotorGUI()
+    window = MotorEncoderGUI()
     window.show()
     sys.exit(app.exec_())

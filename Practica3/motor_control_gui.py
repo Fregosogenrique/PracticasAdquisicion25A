@@ -199,7 +199,7 @@ class PlotCanvas(FigureCanvas):
         # Redraw
         self.fig.canvas.draw()
 
-class MotorControlGUI(QMainWindow):
+class MotorSpeedControlGUI(QMainWindow):
     """Main window for motor control interface"""
     def __init__(self):
         super().__init__()
@@ -218,6 +218,18 @@ class MotorControlGUI(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
+        
+        # Crear primero el log_text para evitar errores
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setMaximumHeight(150)
+
+        # Crear el grupo del log
+        log_group = QGroupBox("Registro de Eventos")
+        log_layout = QVBoxLayout()
+        log_layout.addWidget(self.log_text)
+        log_group.setLayout(log_layout)
+        self.main_layout.addWidget(log_group)
         
         # Create splitter to allow resizing sections
         self.splitter = QSplitter(Qt.Vertical)
@@ -263,6 +275,9 @@ class MotorControlGUI(QMainWindow):
         # Load settings from last session
         self.load_settings()
         
+        # Now that all UI elements are created, refresh the ports list
+        self.refresh_ports()
+        
     def create_connection_section(self):
         """Create the serial connection control group"""
         connection_group = QGroupBox("Serial Connection")
@@ -295,8 +310,8 @@ class MotorControlGUI(QMainWindow):
         connection_group.setLayout(connection_layout)
         self.control_layout.addWidget(connection_group)
         
-        # Initially populate the port list
-        self.refresh_ports()
+        # Initially populate the port list after creating all UI elements
+        # Moved to the end of __init__ to ensure all widgets are created
         
     def create_control_mode_section(self):
         """Create control mode selection group"""
@@ -511,8 +526,12 @@ class MotorControlGUI(QMainWindow):
         ports = [port.device for port in serial.tools.list_ports.comports()]
         if ports:
             self.port_combo.addItems(ports)
+            if hasattr(self, 'log_text'):
+                self.log_message(f"Se encontraron {len(ports)} puertos seriales.")
         else:
             self.statusBar.showMessage("No serial ports found")
+            if hasattr(self, 'log_text'):
+                self.log_message("No se encontraron puertos seriales. Conecte el Arduino.")
     
     def toggle_connection(self):
         """Connect or disconnect from the selected serial port"""
@@ -933,7 +952,7 @@ class MotorControlGUI(QMainWindow):
     
     def save_settings(self):
         """Save application settings to QSettings"""
-        settings = QSettings("DataAcquisition", "MotorControlGUI")
+        settings = QSettings("DataAcquisition", "MotorSpeedControlGUI")
         
         # Save PID parameters
         settings.setValue("pid/kp", self.kp_spin.value())
@@ -958,7 +977,7 @@ class MotorControlGUI(QMainWindow):
     
     def load_settings(self):
         """Load application settings from QSettings"""
-        settings = QSettings("DataAcquisition", "MotorControlGUI")
+        settings = QSettings("DataAcquisition", "MotorSpeedControlGUI")
         
         # Load PID parameters
         self.kp_spin.setValue(float(settings.value("pid/kp", 1.0)))
@@ -1033,6 +1052,36 @@ class MotorControlGUI(QMainWindow):
         
         # Accept the event and close the window
         event.accept()
+        
+    def log_message(self, message, message_type="info"):
+        """
+        Add a message to the log with color formatting.
+        
+        Args:
+            message (str): Message to log
+            message_type (str): Type of message ('info', 'success', 'warning', 'error')
+        """
+        if not hasattr(self, 'log_text'):
+            print(f"Log: {message}")  # Fall back to console if log_text doesn't exist
+            return
+            
+        # Set color based on message type
+        color = {
+            "info": "black",
+            "success": "green",
+            "warning": "orange",
+            "error": "red"
+        }.get(message_type, "black")
+        
+        # Add timestamp
+        timestamp = time.strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}"
+        
+        # Add to log with color
+        self.log_text.append(f"<span style='color:{color};'>{formatted_message}</span>")
+        
+        # Ensure the most recent message is visible
+        self.log_text.ensureCursorVisible()
 
 
 def main():
@@ -1044,7 +1093,7 @@ def main():
     app.setOrganizationDomain("dataacquisition.edu")
     
     # Create and show main window
-    main_window = MotorControlGUI()
+    main_window = MotorSpeedControlGUI()
     main_window.show()
     
     # Run application event loop

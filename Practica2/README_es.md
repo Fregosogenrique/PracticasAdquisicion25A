@@ -1,115 +1,211 @@
-# Control de Motor Paso a Paso con Arduino y PyQt5
+# Práctica 2: Control de Motor con Encoder y Arduino
 
-## Descripción del Proyecto
+## Descripción General
 
-Esta aplicación proporciona una interfaz gráfica de usuario (GUI) basada en PyQt5 para controlar un motor paso a paso conectado a Arduino. La aplicación permite controlar la dirección, velocidad y pasos por revolución del motor, además de proporcionar funciones de inicio/parada y parada de emergencia.
+Esta práctica implementa un sistema de control para un motor con encoder utilizando Arduino y una interfaz gráfica en Python. El sistema permite la rotación continua del motor con cambios de orientación en tiempo real, mientras monitorea la posición y velocidad a través de un encoder.
 
-## Características
+A diferencia de los motores paso a paso que se controlan por pasos discretos, esta implementación utiliza un motor DC con encoder que permite:
+- Rotación continua con monitoreo preciso de posición
+- Cambios de dirección durante la operación
+- Medición de velocidad en tiempo real
+- Detección de fallos como estancamiento del motor
 
-- **Panel de Conexión:** Selección del puerto COM, botones para conectar/desconectar y actualizar puertos disponibles.
-- **Panel de Control:** 
-  - Botones de dirección (Horario/Antihorario)
-  - Control de velocidad (0-100 RPM)
-  - Configuración de pasos por revolución (predeterminado: 48)
-  - Botones de Inicio/Parada y Parada de Emergencia
-- **Panel de Estado:** 
-  - Indicadores de dirección actual y velocidad
-  - Estado de operación
-  - Área de registro de mensajes para monitorizar la comunicación con Arduino
+## Características Principales
 
-## Requisitos
+- **Control de Dirección**: Cambio de sentido horario/antihorario en tiempo real
+- **Rotación Continua**: Modo de operación continua sin paradas
+- **Monitoreo de Posición**: Seguimiento preciso mediante encoder
+- **Medición de Velocidad**: Cálculo de RPM en tiempo real desde el encoder
+- **Contador de Rotaciones**: Seguimiento del número de rotaciones completas
+- **Control de Velocidad**: Ajuste mediante PWM (0-255)
+- **Características de Seguridad**: 
+  - Detección de estancamiento del motor
+  - Aceleración/desaceleración controlada
+  - Parada de emergencia
+  - Manejo robusto de errores
 
+## Requisitos de Hardware
+
+- Arduino (UNO, Mega o compatible)
+- Motor DC con encoder incremental
+- Driver para motor DC (L298N, TB6612 o similar)
+- Fuente de alimentación adecuada para el motor
+- Cables para conexiones
+- Computadora con puerto USB
+
+### Conexiones de Hardware
+
+- **Encoder**:
+  - Pin A del encoder → Pin 2 del Arduino (Interrupción)
+  - Pin B del encoder → Pin 3 del Arduino (Interrupción)
+  - VCC del encoder → 5V del Arduino
+  - GND del encoder → GND del Arduino
+
+- **Driver del Motor**:
+  - Pin PWM del driver → Pin 5 del Arduino
+  - Pin de dirección del driver → Pin 7 del Arduino
+  - Conexiones de alimentación según especificaciones del driver
+
+## Componentes de Software
+
+El sistema consta de dos componentes principales:
+
+### 1. Firmware Arduino (arduino_sketch.ino)
+
+El firmware se encarga de:
+- Leer señales del encoder mediante interrupciones
+- Controlar el motor mediante PWM
+- Calcular la posición y velocidad en tiempo real
+- Ejecutar las instrucciones recibidas por puerto serie
+- Implementar medidas de seguridad
+
+### 2. Interfaz Gráfica Python (arduino_stepper_control.py)
+
+La interfaz proporciona:
+- Panel de conexión para gestionar la comunicación serial
+- Controles para dirección, velocidad y modo continuo
+- Visualización de posición, velocidad y conteo de rotaciones
+- Log de eventos para monitoreo y depuración
+- Manejo de errores y reconexión automática
+
+## Instalación y Configuración
+
+### Software Requerido
+
+- Arduino IDE (para cargar el firmware)
 - Python 3.6 o superior
-- PyQt5
-- pyserial
-- Un Arduino (Uno, Nano, Mega, etc.)
-- Motor paso a paso y hardware de control (compatible con el sketch de Arduino proporcionado)
+- Bibliotecas Python: PyQt5, pyserial
 
-## Instalación
+### Pasos de Instalación
 
-1. **Instalar las dependencias necesarias:**
+1. **Configuración del Arduino**:
+   - Conecta el Arduino a tu computadora
+   - Abre arduino_sketch.ino en Arduino IDE
+   - Modifica la constante `ENCODER_RESOLUTION` si tu encoder tiene diferente resolución
+   - Carga el sketch en el Arduino
 
-```bash
-pip install pyqt5 pyserial
-```
+2. **Configuración Python**:
+   - Instala las dependencias:
+   ```bash
+   pip install PyQt5 pyserial
+   ```
+   - Navega al directorio de la práctica y ejecuta la interfaz:
+   ```bash
+   python arduino_stepper_control.py
+   ```
 
-2. **Cargar el sketch de Arduino:**
-   - Abra el archivo `arduino_sketch.ino` en el IDE de Arduino
-   - Conéctese a su placa Arduino
-   - Compile y cargue el sketch en la placa
+## Instrucciones de Uso
 
-3. **Ejecutar la aplicación Python:**
+1. **Conexión**:
+   - Selecciona el puerto COM correcto del desplegable
+   - Haz clic en "Conectar"
+   - Verifica que el estado cambie a "Connected" (verde)
 
-```bash
-python arduino_stepper_control.py
-```
+2. **Control Básico**:
+   - **Dirección**: Selecciona "Horario" o "Antihorario"
+   - **Velocidad**: Ajusta el deslizador para controlar la velocidad (0-255)
+   - **Inicio/Parada**: Presiona "Iniciar" para comenzar la rotación, "Detener" para parar
 
-## Uso
+3. **Modo Continuo**:
+   - Haz clic en "Activar" para iniciar el modo continuo
+   - El motor mantendrá una rotación constante hasta que se desactive
 
-1. **Conexión con Arduino:**
-   - Seleccione el puerto COM correspondiente a su Arduino en el menú desplegable
-   - Haga clic en "Conectar" para establecer la comunicación
-   - El indicador de estado cambiará a verde si la conexión es exitosa
+4. **Monitoreo**:
+   - El panel de estado muestra:
+     - Posición actual del encoder
+     - Velocidad real (RPM)
+     - Recuento de rotaciones completas
+     - Estado del modo continuo
+     - Dirección actual
 
-2. **Control del Motor:**
-   - Establezca la dirección deseada usando los botones "Horario" o "Antihorario"
-   - Ajuste la velocidad usando el control deslizante (en RPM)
-   - Configure los pasos por revolución según su motor específico
-   - Haga clic en "Iniciar" para comenzar la rotación del motor
-   - Use "Parar" para detener el motor normalmente
-   - Use "PARADA DE EMERGENCIA" para detener inmediatamente en caso de emergencia
+5. **Parada de Emergencia**:
+   - Presiona "PARADA DE EMERGENCIA" para detener inmediatamente el motor
 
-3. **Monitoreo:**
-   - El panel de estado muestra la dirección actual, velocidad y estado de operación
-   - El área de registro muestra mensajes detallados sobre las operaciones y respuestas del Arduino
+## Detalles Técnicos del Encoder
 
-## Protocolo de Comunicación
+### Funcionamiento del Encoder
 
-La comunicación entre la GUI y Arduino utiliza comandos seriales simples:
+Esta implementación utiliza un encoder incremental con dos canales (A y B) en cuadratura para determinar:
+- Posición exacta mediante conteo de pulsos
+- Dirección de rotación mediante detección de fase entre canales
+- Velocidad por cálculo de tiempo entre pulsos
 
-- `CW` - Establece dirección horaria
-- `CCW` - Establece dirección antihoraria
-- `SPEED:X` - Establece velocidad a X RPM
-- `STEPS:X` - Configura X pasos por revolución
-- `START:DIR` - Inicia el motor (DIR puede ser CW o CCW)
-- `STOP` - Detiene el motor
+### Cálculo de Posición y Velocidad
+
+- **Posición**: Se determina contando los pulsos del encoder. Cada flanco (rising/falling) en los canales genera un incremento/decremento según la dirección.
+
+- **Velocidad**: Se calcula mediante la fórmula:
+  ```
+  RPM = (cambio_posición / resolución_encoder) * (60 / tiempo_segundos)
+  ```
+  donde:
+  - `cambio_posición` es la diferencia de pulsos en el intervalo
+  - `resolución_encoder` es el número de pulsos por revolución
+  - `tiempo_segundos` es el intervalo de muestreo
+
+- **Conteo de Rotaciones**: Se incrementa cada vez que la posición alcanza un múltiplo de la resolución del encoder.
+
+## Características de Seguridad
+
+### Limitación de Aceleración
+
+El sistema implementa una aceleración controlada que:
+- Limita la tasa de cambio de PWM a `ACCEL_RATE` por ciclo
+- Previene cambios bruscos que podrían dañar el motor o la mecánica
+- Proporciona arranques y paradas suaves
+
+### Detección de Estancamiento
+
+El sistema monitorea constantemente el movimiento del motor:
+- Verifica que la posición del encoder cambie cuando el motor está energizado
+- Si no se detectan cambios durante `STALL_TIMEOUT` milisegundos, se asume estancamiento
+- Ante un estancamiento, se detiene el motor y se notifica el error
+
+### Comandos de Emergencia
+
+La implementación incluye un comando de parada de emergencia (ESTOP):
+- Detiene el motor inmediatamente con máxima prioridad
+- Ignora la cola de comandos para respuesta inmediata
+- Reinicia todos los estados de operación
+
+### Manejo de Errores de Comunicación
+
+La interfaz incluye un sistema robusto de manejo de errores:
+- Detección de desconexiones
+- Reintentos automáticos de conexión
+- Timeout para comandos sin respuesta
+- Recuperación de estado tras reconexión
+
+## Comunicación Serial
+
+### Protocolo de Comunicación
+
+La comunicación entre Arduino y Python utiliza un protocolo basado en texto:
+
+**Comandos enviados al Arduino**:
+- `SET_DIR:CW/CCW` - Establece dirección (horario/antihorario)
+- `SET_SPEED:<0-255>` - Establece velocidad por PWM
+- `SET_CONTINUOUS:ON/OFF` - Activa/desactiva rotación continua
+- `GET_POS` - Solicita posición actual
+- `GET_SPEED` - Solicita velocidad actual
+- `STOP` - Detiene el motor normalmente
 - `ESTOP` - Parada de emergencia
 
-Arduino responde con mensajes como:
-- `OK:COMANDO` - Confirma que un comando se completó correctamente
-- `ERROR:mensaje` - Indica un error con el mensaje explicativo
-- `clockwise` o `counterclockwise` - Confirmación de cambio de dirección
+**Respuestas del Arduino**:
+- `POS:<valor>` - Posición actual del encoder
+- `SPEED:<valor>` - Velocidad actual en RPM
+- `OK:<comando>` - Confirmación de comando
+- `ERROR:<mensaje>` - Notificación de error
 
-## Estructura del Proyecto
+## Resolución de Problemas
 
-- `arduino_stepper_control.py` - Aplicación principal de la GUI en Python
-- `arduino_sketch.ino` - Código para cargar en la placa Arduino
+- **El motor no gira**: Verifica conexiones físicas y nivel de PWM
+- **Lecturas erráticas del encoder**: Revisa ruido en señales y considera usar filtro
+- **Errores de comunicación**: Verifica el puerto COM y velocidad de baudios
+- **Estancamiento frecuente**: Ajusta `STALL_THRESHOLD` según el encoder
+- **Aceleración demasiado lenta/rápida**: Modifica `ACCEL_RATE` en el firmware
 
-## Solución de Problemas
+---
 
-1. **No se detectan puertos COM:**
-   - Verifique que el Arduino esté conectado correctamente
-   - Reinstale los drivers del adaptador USB si es necesario
-   - Haga clic en "Actualizar" para buscar puertos disponibles
-
-2. **Error de conexión:**
-   - Verifique que el puerto COM seleccionado sea correcto
-   - Asegúrese de que no haya otras aplicaciones usando el mismo puerto
-   - Reinicie el Arduino y la aplicación
-
-3. **El motor no responde:**
-   - Verifique las conexiones del hardware
-   - Asegúrese de que el sketch correcto esté cargado en Arduino
-   - Revise los mensajes de registro para detectar errores de comunicación
-
-## Desarrollo y Mejoras Futuras
-
-- Añadir soporte para controlar múltiples motores
-- Implementar perfiles de movimiento (aceleración/desaceleración)
-- Guardar y cargar configuraciones predefinidas
-- Visualización gráfica de la posición del motor
-
-## Licencia
-
-Este proyecto está disponible bajo la licencia MIT. Para más detalles, consulte el archivo LICENSE.
+Esta práctica demuestra la aplicación de conceptos fundamentales de adquisición de datos y control, implementando un sistema de retroalimentación cerrado con encoder para el control preciso de posición y velocidad de un motor.
 
